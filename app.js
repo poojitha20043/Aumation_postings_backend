@@ -43,7 +43,7 @@ app.set('trust proxy', 1);
 // ✅ CORS setup
 const allowedOrigins = [
   "http://localhost:3000",
-  "https://automatedpostingsfrontend.onrender.com"
+  "https://automatedpostingsfrontend.onrender.com","https://aumation-postings-backend.onrender.com"
 ];
 
 app.use(cors({
