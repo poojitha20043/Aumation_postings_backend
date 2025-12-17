@@ -8,7 +8,7 @@ dotenv.config();
 const TWITTER_CLIENT_ID = process.env.TWITTER_CLIENT_ID;
 const TWITTER_CLIENT_SECRET = process.env.TWITTER_CLIENT_SECRET;
 const BACKEND_URL = "https://aumation-postings-backend.onrender.com";
-const FRONTEND_URL = "https://aumation-postings-frontend-q0z8.onrender.com";
+const FRONTEND_URL = "https://aumation-postings-frontend-1.onrender.com";
 const TWITTER_CALLBACK_URL = `${BACKEND_URL}/auth/twitter/callback`;
 
 const twitterClient = new TwitterApi({
@@ -171,7 +171,7 @@ const handleRedirect = (res, platform, userData, userId, sessionId, accessToken)
           
           // Fallback after 3 seconds
           setTimeout(function() {
-            window.location.href = "https://aumation-postings-frontend-q0z8.onrender.com/twitter-manager?twitter=connected&username=${encodeURIComponent(userData.username)}";
+            window.location.href = "https://aumation-postings-frontend-1.onrender.com/twitter-manager?twitter=connected&username=${encodeURIComponent(userData.username)}";
           }, 3000);
         </script>
       </head>
@@ -187,7 +187,7 @@ const handleRedirect = (res, platform, userData, userId, sessionId, accessToken)
   
   // 🎯 WEB: Normal Redirect
   const webRedirect = 
-    `https://aumation-postings-frontend-q0z8.onrender.com/twitter-manager` +
+    `https://aumation-postings-frontend-1.onrender.com/twitter-manager` +
     `?twitter=connected` +
     `&username=${encodeURIComponent(userData.username)}` +
     `&user_id=${userId}`;
@@ -217,7 +217,7 @@ const sendErrorResponse = (res, error, platform) => {
   }
   
   // Web error
-  const webError = `https://aumation-postings-frontend-q0z8.onrender.com/twitter-connect?error=${encodeURIComponent(error)}`;
+  const webError = `https://aumation-postings-frontend-1.onrender.com/twitter-connect?error=${encodeURIComponent(error)}`;
   return res.redirect(webError);
 };
 

@@ -44,21 +44,20 @@ app.set('trust proxy', 1);
 // ✅ CORS setup
 const allowedOrigins = [
   "http://localhost:3000",
-  "https://automatedpostingsfrontend.onrender.com","https://aumation-postings-backend.onrender.com"
+  "https://automatedpostingsfrontend.onrender.com",
+  "https://aumation-postings-frontend-1.onrender.com"
 ];
 
 app.use(cors({
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = `CORS policy error`;
-      return callback(new Error(msg), false);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
     }
-    return callback(null, true);
+    return callback(new Error("CORS not allowed"), false);
   },
   credentials: true
 }));
-
 app.use(express.json());
 app.use(cookieParser());
 
