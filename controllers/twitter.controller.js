@@ -7,8 +7,8 @@ dotenv.config();
 
 const TWITTER_CLIENT_ID = process.env.TWITTER_CLIENT_ID;
 const TWITTER_CLIENT_SECRET = process.env.TWITTER_CLIENT_SECRET;
-const BACKEND_URL = "https://automatedpostingbackend.onrender.com";
-const FRONTEND_URL = "https://automatedpostingsfrontend.onrender.com";
+const BACKEND_URL = "https://aumation-postings-backend.onrender.com";
+const FRONTEND_URL = "https://aumation-postings-frontend-q0z8.onrender.com";
 const TWITTER_CALLBACK_URL = `${BACKEND_URL}/auth/twitter/callback`;
 
 const twitterClient = new TwitterApi({
@@ -171,7 +171,7 @@ const handleRedirect = (res, platform, userData, userId, sessionId, accessToken)
           
           // Fallback after 3 seconds
           setTimeout(function() {
-            window.location.href = "https://automatedpostingsfrontend.onrender.com/twitter-manager?twitter=connected&username=${encodeURIComponent(userData.username)}";
+            window.location.href = "https://aumation-postings-frontend-q0z8.onrender.com/twitter-manager?twitter=connected&username=${encodeURIComponent(userData.username)}";
           }, 3000);
         </script>
       </head>
@@ -187,7 +187,7 @@ const handleRedirect = (res, platform, userData, userId, sessionId, accessToken)
   
   // 🎯 WEB: Normal Redirect
   const webRedirect = 
-    `https://automatedpostingsfrontend.onrender.com/twitter-manager` +
+    `https://aumation-postings-frontend-q0z8.onrender.com/twitter-manager` +
     `?twitter=connected` +
     `&username=${encodeURIComponent(userData.username)}` +
     `&user_id=${userId}`;
@@ -217,7 +217,7 @@ const sendErrorResponse = (res, error, platform) => {
   }
   
   // Web error
-  const webError = `https://automatedpostingsfrontend.onrender.com/twitter-connect?error=${encodeURIComponent(error)}`;
+  const webError = `https://aumation-postings-frontend-q0z8.onrender.com/twitter-connect?error=${encodeURIComponent(error)}`;
   return res.redirect(webError);
 };
 
@@ -274,6 +274,25 @@ export const verifyAndroidSession = async (req, res) => {
       success: false, 
       error: err.message 
     });
+  }
+};
+
+// ANDROID LOGIN PAGE (REDIRECT)
+// =========================
+export const androidLoginPage = async (req, res) => {
+  try {
+    console.log("📱 Android login page accessed");
+    
+    // Redirect to existing Twitter auth with platform=android
+    const userId = req.query.userId || "android_user_temp";
+    const authUrl = `/auth/twitter?userId=${userId}&platform=android`;
+    
+    console.log(`🔗 Redirecting Android to: ${authUrl}`);
+    res.redirect(authUrl);
+    
+  } catch (err) {
+    console.error("❌ Android login redirect error:", err);
+    res.status(500).send("Login failed");
   }
 };
 

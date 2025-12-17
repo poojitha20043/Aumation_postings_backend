@@ -8,11 +8,11 @@ dotenv.config();
 
 const LINKEDIN_CLIENT_ID = process.env.LINKEDIN_CLIENT_ID;
 const LINKEDIN_CLIENT_SECRET = process.env.LINKEDIN_CLIENT_SECRET;
-const BACKEND_URL = process.env.BACKEND_URL || "https://automatedpostingbackend.onrender.com";
-const FRONTEND_URL = process.env.FRONTEND_URL || "https://automatedpostingsfrontend.onrender.com";
+const BACKEND_URL = process.env.BACKEND_URL || "https://aumation-postings-backend.onrender.com";
+const FRONTEND_URL = process.env.FRONTEND_URL || "https://aumation-postings-frontend-q0z8.onrender.com";
 
 // FIX: Use exact callback URL matching LinkedIn app
-const LINKEDIN_CALLBACK_URL = process.env.LINKEDIN_REDIRECT_URI || "https://automatedpostingbackend.onrender.com/auth/linkedin/callback";
+const LINKEDIN_CALLBACK_URL = process.env.LINKEDIN_REDIRECT_URI || "https://aumation-postings-backend.onrender.com/auth/linkedin/callback";
 // =========================
 // 1️⃣ LinkedIn Auth (UPDATED)
 // =========================

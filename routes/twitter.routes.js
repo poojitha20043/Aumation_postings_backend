@@ -3,26 +3,19 @@ import * as twitterController from "../controllers/twitter.controller.js";
 const router = express.Router();
 
 // ==================== TWITTER ROUTES ====================
-
-// 🔹 These will be accessible at: /auth/twitter?userId=123
+router.get("/auth/twitter/login", twitterController.twitterAuth); // ✅ NEW
 router.get("/twitter", twitterController.twitterAuth);
-
-// 🔹 These will be accessible at: /auth/twitter/callback
 router.get("/twitter/callback", twitterController.twitterCallback);
-
-// 🔹 These will be accessible at: /api/twitter/check?userId=123
 router.get("/twitter/check", twitterController.checkTwitterConnection);
-
-// 🔹 These will be accessible at: /api/twitter/post
 router.post("/twitter/post", twitterController.postToTwitter);
-
-// 🔹 These will be accessible at: /api/twitter/disconnect
 router.delete("/twitter/disconnect", twitterController.disconnectTwitter);
-
-// 🔹 These will be accessible at: /api/twitter/posts?userId=123
 router.get("/twitter/posts", twitterController.getTwitterPosts);
-
-// ✅ NEW: Android session verification
 router.get("/twitter/verify-session", twitterController.verifyAndroidSession);
+
+// ✅ Android Login Page (Simple redirect)
+router.get("/twitter/login-page", twitterController.androidLoginPage);
+
+// ❌ REMOVE OR COMMENT THIS LINE - Function doesn't exist:
+// router.get("/twitter/android-callback", twitterController.androidCallbackHandler);
 
 export default router;

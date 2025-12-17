@@ -15,6 +15,14 @@ const TwitterAccountSchema = new mongoose.Schema({
     default: null
   },
   
+isAndroidSession: {
+  type: Boolean,
+  default: false
+},
+sessionCreatedAt: Date,
+sessionExpiresAt: Date,
+
+
   // OAuth fields
   oauthState: {
     type: String,

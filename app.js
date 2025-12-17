@@ -12,6 +12,7 @@ import instagramRoutes from "./routes/instagram.routes.js";
 import mongoose from "mongoose";
 import session from "express-session";
 import MongoStore from "connect-mongo";
+import authRoutes from "./routes/twitter.auth.js";
 
 import {
   twitterAuth,
@@ -20,8 +21,8 @@ import {
   postToTwitter,
   disconnectTwitter,
   getTwitterPosts,
-  verifyAndroidSession // ✅ ADDED
-  
+  verifyAndroidSession, // ✅ ADDED
+   androidLoginPage  // ✅ ADD THIS
 
 } from "./controllers/twitter.controller.js";
 
@@ -43,7 +44,7 @@ app.set('trust proxy', 1);
 // ✅ CORS setup
 const allowedOrigins = [
   "http://localhost:3000",
-  "https://automatedpostingsfrontend.onrender.com"
+  "https://automatedpostingsfrontend.onrender.com","https://aumation-postings-backend.onrender.com"
 ];
 
 app.use(cors({
@@ -100,13 +101,15 @@ app.use(
 //  📌 TWITTER ROUTES
 // =========================
 app.get("/auth/twitter", twitterAuth); // ONLY ONE TIME
+app.get("/auth/twitter/login", twitterAuth); // ✅ ANDROID / DOMAIN LOGIN
 app.get("/auth/twitter/callback", twitterCallback);
 app.get("/api/twitter/check", checkTwitterConnection);
 app.post("/api/twitter/post", postToTwitter);
 app.post("/api/twitter/disconnect", disconnectTwitter);
 app.get("/api/twitter/posts", getTwitterPosts);
 app.get("/api/twitter/verify-session", verifyAndroidSession);
-
+// Mount router at /auth/twitter
+app.use(twitterRoutes);
 // =========================
 //  📌 LINKEDIN ROUTES
 // =========================
