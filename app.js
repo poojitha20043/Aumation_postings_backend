@@ -21,9 +21,8 @@ import {
   postToTwitter,
   disconnectTwitter,
   getTwitterPosts,
-  verifyAndroidSession, // ✅ ADDED
-   androidLoginPage  // ✅ ADD THIS
-
+  verifyAndroidSession  // ✅ Keep only existing exports
+  // ❌ REMOVE: androidLoginPage - this doesn't exist
 } from "./controllers/twitter.controller.js";
 
 import {
@@ -90,8 +89,8 @@ app.use(
     cookie: {
       maxAge: 1000 * 60 * 60 * 24 * 365 * 10,
       httpOnly: true,
-      secure: true,
-      sameSite: "none"
+      secure: process.env.NODE_ENV === 'production', // Dynamic based on environment
+      sameSite: process.env.NODE_ENV === 'production' ? "none" : "lax"
     }
   })
 );
@@ -99,7 +98,7 @@ app.use(
 // =========================
 //  📌 TWITTER ROUTES
 // =========================
-app.get("/auth/twitter", twitterAuth); // ONLY ONE TIME
+app.get("/auth/twitter", twitterAuth);
 app.get("/auth/twitter/login", twitterAuth); // ✅ ANDROID / DOMAIN LOGIN
 app.get("/auth/twitter/callback", twitterCallback);
 app.get("/api/twitter/check", checkTwitterConnection);
@@ -109,6 +108,7 @@ app.get("/api/twitter/posts", getTwitterPosts);
 app.get("/api/twitter/verify-session", verifyAndroidSession);
 // Mount router at /auth/twitter
 app.use(twitterRoutes);
+
 // =========================
 //  📌 LINKEDIN ROUTES
 // =========================
@@ -124,7 +124,11 @@ app.get("/api/linkedin/posts", getLinkedInPosts);
 //  📌 HEALTH
 // =========================
 app.get("/health", (req, res) => {
-  res.json({ status: "OK", timestamp: new Date() });
+  res.json({ 
+    status: "OK", 
+    timestamp: new Date(),
+    mongoConnected: mongoose.connection.readyState === 1
+  });
 });
 
 // =========================
@@ -141,49 +145,6 @@ app.get("/debug/session", (req, res) => {
   });
 });
 
-// Debug: Check database fields
-app.get('/debug/twitter/:userId', async (req, res) => {
-  try {
-    const account = await TwitterAccount.findOne({
-      user: req.params.userId,
-      platform: "twitter"
-    });
-    
-    if (!account) {
-      return res.json({ error: "Account not found" });
-    }
-    
-    res.json({
-      success: true,
-      loginPlatform: account.loginPlatform,
-      androidSessionId: account.androidSessionId,
-      hasLoginPlatform: 'loginPlatform' in account._doc,
-      hasAndroidSessionId: 'androidSessionId' in account._doc,
-      allFields: Object.keys(account._doc)
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Debug: Force set platform to android
-app.get('/force-android/:userId', async (req, res) => {
-  try {
-    await TwitterAccount.findOneAndUpdate(
-      { user: req.params.userId, platform: "twitter" },
-      { 
-        loginPlatform: "android",
-        androidSessionId: null 
-      }
-    );
-    res.json({ success: true, message: "Forced to android" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-
-
 // =========================
 //  🚀 START SERVER
 // =========================
@@ -191,6 +152,6 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server started on port ${PORT}`);
   console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔐 Secure cookies: true`);
+  console.log(`🔐 Secure cookies: ${process.env.NODE_ENV === 'production'}`);
   console.log(`🔄 Trust proxy: enabled`);
 });
