@@ -7,17 +7,89 @@ dotenv.config();
 
 const TWITTER_CLIENT_ID = process.env.TWITTER_CLIENT_ID;
 const TWITTER_CLIENT_SECRET = process.env.TWITTER_CLIENT_SECRET;
-const BACKEND_URL = "https://aumation-postings-backend.onrender.com";
-const FRONTEND_URL = "https://aumation-postings-frontend-1.onrender.com";
+const BACKEND_URL = process.env.BACKEND_URL || "https://aumation-postings-backend.onrender.com";
+const FRONTEND_URL = process.env.FRONTEND_URL || "https://aumation-postings-frontend-1.onrender.com";
 const TWITTER_CALLBACK_URL = `${BACKEND_URL}/auth/twitter/callback`;
 
+// Twitter client for getting new tokens
 const twitterClient = new TwitterApi({
   clientId: TWITTER_CLIENT_ID,
   clientSecret: TWITTER_CLIENT_SECRET,
 });
 
 // =========================
-// 1️⃣ TWITTER AUTH (ANDROID & WEB)
+// HELPER: REFRESH TOKEN
+// =========================
+const refreshAccessToken = async (refreshToken) => {
+  try {
+    console.log("🔄 Attempting to refresh access token...");
+    
+    const { 
+      accessToken: newAccessToken, 
+      refreshToken: newRefreshToken 
+    } = await twitterClient.refreshOAuth2Token(refreshToken);
+    
+    console.log("✅ Token refreshed successfully");
+    
+    return {
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken
+    };
+  } catch (refreshError) {
+    console.error("❌ Token refresh failed:", refreshError.message);
+    throw new Error("Token refresh failed. Please reconnect your Twitter account.");
+  }
+};
+
+// =========================
+// HELPER: GET VALID CLIENT
+// =========================
+const getValidTwitterClient = async (account) => {
+  try {
+    let accessToken = account.accessToken;
+    let refreshToken = account.refreshToken;
+    let tokenUpdated = false;
+
+    // First, try with current token
+    const client = new TwitterApi(accessToken);
+    
+    try {
+      // Quick test to see if token is valid
+      await client.v2.me();
+      console.log("✅ Token is valid");
+      return { client, accessToken, refreshToken };
+    } catch (tokenError) {
+      console.log("⚠️ Token appears invalid, attempting refresh...");
+      
+      // Try to refresh the token
+      try {
+        const newTokens = await refreshAccessToken(refreshToken);
+        accessToken = newTokens.accessToken;
+        refreshToken = newTokens.refreshToken;
+        tokenUpdated = true;
+        
+        // Update in database
+        await TwitterAccount.findByIdAndUpdate(account._id, {
+          accessToken: newTokens.accessToken,
+          refreshToken: newTokens.refreshToken,
+          updatedAt: new Date()
+        });
+        
+        console.log("✅ Token refreshed and saved to database");
+        return { client: new TwitterApi(accessToken), accessToken, refreshToken };
+      } catch (refreshError) {
+        console.error("❌ Failed to refresh token, token may be permanently invalid");
+        throw new Error("Authentication expired. Please reconnect your Twitter account.");
+      }
+    }
+  } catch (error) {
+    console.error("❌ Error getting valid client:", error);
+    throw error;
+  }
+};
+
+// =========================
+// 1️⃣ TWITTER AUTH
 // =========================
 export const twitterAuth = async (req, res) => {
   try {
@@ -26,17 +98,18 @@ export const twitterAuth = async (req, res) => {
 
     console.log(`🔥 RAW PARAMS: platform=${platform}, userId=${userId}`);
 
-    // 🔥🔥🔥 TEMPORARY FIX: FORCE ANDROID
-    let loginPlatform = "android"; // ALWAYS ANDROID
-    
-    console.log(`📱 FINAL Platform: ${loginPlatform} (FORCED)`);
+    // Use platform from query or default to web
+    let loginPlatform = platform || "web";
+    console.log(`📱 Final Platform: ${loginPlatform}`);
 
     const { url, codeVerifier, state } = twitterClient.generateOAuth2AuthLink(
       TWITTER_CALLBACK_URL,
-      { scope: ["tweet.read", "tweet.write", "users.read", "offline.access"] }
+      { 
+        scope: ["tweet.read", "tweet.write", "users.read", "offline.access"] 
+      }
     );
 
-    // Save with FORCED android
+    // Save with platform
     await TwitterAccount.findOneAndUpdate(
       { user: userId, platform: "twitter" },
       {
@@ -45,7 +118,7 @@ export const twitterAuth = async (req, res) => {
         oauthState: state,
         oauthCodeVerifier: codeVerifier,
         oauthCreatedAt: new Date(),
-        loginPlatform: loginPlatform,  // 🔥 "android"
+        loginPlatform: loginPlatform,
         androidSessionId: null
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -58,12 +131,15 @@ export const twitterAuth = async (req, res) => {
 
   } catch (err) {
     console.error("❌ Auth Error:", err);
-    res.status(500).send(err.message);
+    res.status(500).json({ 
+      success: false, 
+      error: err.message 
+    });
   }
 };
 
 // =========================
-// 2️⃣ TWITTER CALLBACK (ANDROID & WEB)
+// 2️⃣ TWITTER CALLBACK
 // =========================
 export const twitterCallback = async (req, res) => {
   console.log("🚨 Twitter Callback Triggered");
@@ -87,13 +163,16 @@ export const twitterCallback = async (req, res) => {
 
     const { oauthCodeVerifier, user: userId, loginPlatform } = account;
 
-    // Get access token
-    const { accessToken, refreshToken } = await twitterClient.loginWithOAuth2({
+    // Get access token with offline.access for refresh tokens
+    const { accessToken, refreshToken, expiresIn } = await twitterClient.loginWithOAuth2({
       code,
       codeVerifier: oauthCodeVerifier,
       redirectUri: TWITTER_CALLBACK_URL
     });
 
+    console.log(`✅ Tokens received. Expires in: ${expiresIn} seconds`);
+
+    // Create client and get user info
     const userClient = new TwitterApi(accessToken);
     const user = await userClient.v2.me();
 
@@ -104,6 +183,7 @@ export const twitterCallback = async (req, res) => {
       providerId: user.data.id,
       accessToken,
       refreshToken,
+      tokenExpiresAt: new Date(Date.now() + (expiresIn * 1000)),
       scopes: ["tweet.read", "tweet.write", "users.read", "offline.access"],
       meta: {
         twitterId: user.data.id,
@@ -139,86 +219,175 @@ export const twitterCallback = async (req, res) => {
 };
 
 // =========================
-// 3️⃣ REDIRECT HANDLER
+// 3️⃣ POST TWEET (WITH TOKEN REFRESH)
 // =========================
-const handleRedirect = (res, platform, userData, userId, sessionId, accessToken) => {
-  console.log(`🔄 Redirecting: ${platform.toUpperCase()} flow`);
-  
-  // 🎯 ANDROID: Send Deep Link
-  if (platform === "android" && sessionId) {
-    const deepLink = 
-      `aimediahub://twitter-callback` +
-      `?session_id=${sessionId}` +
-      `&status=success` +
-      `&username=${encodeURIComponent(userData.username)}` +
-      `&twitter_id=${userData.id}` +
-      `&user_id=${userId}` +
-      `&access_token=${encodeURIComponent(accessToken)}`;
+export const postToTwitter = async (req, res) => {
+  try {
+    console.log("📝 Tweet request received:", req.body);
     
-    console.log(`🔗 Android Deep Link Created`);
+    const { userId, content } = req.body;
+    if (!userId || !content) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "userId and content required" 
+      });
+    }
+
+    if (!content.trim()) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Tweet content cannot be empty" 
+      });
+    }
+
+    // Find account
+    const account = await TwitterAccount.findOne({
+      user: userId,
+      platform: "twitter"
+    });
+
+    if (!account) {
+      return res.status(401).json({ 
+        success: false, 
+        error: "Twitter not connected. Please connect your Twitter account first." 
+      });
+    }
+
+    if (!account.accessToken) {
+      return res.status(401).json({ 
+        success: false, 
+        error: "Access token missing. Please reconnect." 
+      });
+    }
+
+    console.log(`📱 Attempting to post as: ${account.meta?.username}`);
+
+    // Get valid client (with token refresh if needed)
+    const { client } = await getValidTwitterClient(account);
     
-    // HTML page with auto-redirect (works in browser too)
-    return res.send(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Twitter Connected</title>
-        <script>
-          // Try to redirect to app
-          setTimeout(function() {
-            window.location.href = "${deepLink}";
-          }, 100);
-          
-          // Fallback after 3 seconds
-          setTimeout(function() {
-            window.location.href = "https://aumation-postings-frontend-1.onrender.com/twitter-manager?twitter=connected&username=${encodeURIComponent(userData.username)}";
-          }, 3000);
-        </script>
-      </head>
-      <body style="padding: 20px; font-family: Arial;">
-        <h2>✅ Twitter Connected Successfully!</h2>
-        <p>Connected to: @${userData.username}</p>
-        <p>Redirecting to Android app...</p>
-        <p><small>If not redirected, <a href="${deepLink}">click here</a></small></p>
-      </body>
-      </html>
-    `);
+    // Post tweet
+    const tweet = await client.v2.tweet(content);
+    const tweetId = tweet.data.id;
+    const tweetUrl = `https://twitter.com/${account.meta?.username}/status/${tweetId}`;
+    
+    console.log(`✅ Tweet posted! ID: ${tweetId}, URL: ${tweetUrl}`);
+
+    // Save to posts database
+    try {
+      const newPost = new Post({
+        user: account.user,
+        platform: "twitter",
+        providerId: tweetId,
+        content: content,
+        postUrl: tweetUrl,
+        postedAt: new Date(),
+        status: "posted",
+        accountInfo: {
+          username: account.meta?.username,
+          name: account.meta?.name,
+          platformId: account.providerId
+        }
+      });
+      await newPost.save();
+      console.log("✅ Tweet saved to DB");
+    } catch (dbError) {
+      console.error("⚠️ DB Save Error (tweet still posted):", dbError.message);
+    }
+
+    res.json({
+      success: true,
+      tweetId: tweetId,
+      tweetUrl: tweetUrl,
+      message: "Tweet posted successfully!",
+      username: account.meta?.username
+    });
+
+  } catch (err) {
+    console.error("❌ Post Error:", err.message);
+    
+    // Check if it's an authentication error
+    if (err.code === 401 || err.message.includes("Unauthorized") || err.message.includes("authenticate")) {
+      return res.status(401).json({
+        success: false,
+        error: "Twitter authentication failed. Please reconnect your account.",
+        code: "AUTH_EXPIRED"
+      });
+    }
+    
+    // Check if it's a rate limit error
+    if (err.code === 429) {
+      return res.status(429).json({
+        success: false,
+        error: "Rate limit exceeded. Please try again later.",
+        code: "RATE_LIMIT"
+      });
+    }
+    
+    // Generic error
+    res.status(500).json({
+      success: false,
+      error: err.message || "Failed to post tweet. Please try again.",
+      code: "POST_FAILED"
+    });
   }
-  
-  // 🎯 WEB: Normal Redirect
-  const webRedirect = 
-    `https://aumation-postings-frontend-1.onrender.com/twitter-manager` +
-    `?twitter=connected` +
-    `&username=${encodeURIComponent(userData.username)}` +
-    `&user_id=${userId}`;
-  
-  console.log(`🌐 Web Redirect: ${webRedirect}`);
-  return res.redirect(webRedirect);
 };
 
 // =========================
-// 4️⃣ ERROR HANDLER
+// 4️⃣ CHECK CONNECTION (WITH VALIDATION)
 // =========================
-const sendErrorResponse = (res, error, platform) => {
-  console.log(`❌ ${platform.toUpperCase()} Error: ${error}`);
-  
-  if (platform === "android") {
-    const errorLink = `aimediahub://twitter-callback?status=error&error=${encodeURIComponent(error)}`;
-    return res.send(`
-      <!DOCTYPE html>
-      <html>
-      <body>
-        <script>
-          window.location.href = "${errorLink}";
-        </script>
-      </body>
-      </html>
-    `);
+export const checkTwitterConnection = async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) return res.status(400).json({ 
+      success: false, 
+      error: "userId required" 
+    });
+
+    const account = await TwitterAccount.findOne({
+      user: userId,
+      platform: "twitter",
+    });
+    
+    if (!account) {
+      return res.json({ 
+        success: true, 
+        connected: false 
+      });
+    }
+
+    // Test if token is still valid
+    let isValid = false;
+    let error = null;
+    
+    try {
+      const { client } = await getValidTwitterClient(account);
+      await client.v2.me();
+      isValid = true;
+    } catch (tokenError) {
+      error = tokenError.message;
+      isValid = false;
+    }
+
+    res.json({
+      success: true,
+      connected: isValid,
+      isValid: isValid,
+      error: error,
+      account: {
+        username: account.meta?.username,
+        name: account.meta?.name,
+        connectedAt: account.createdAt,
+        needsReconnect: !isValid
+      }
+    });
+
+  } catch (err) {
+    console.error("Check Error:", err);
+    res.status(500).json({ 
+      success: false, 
+      error: err.message 
+    });
   }
-  
-  // Web error
-  const webError = `https://aumation-postings-frontend-1.onrender.com/twitter-connect?error=${encodeURIComponent(error)}`;
-  return res.redirect(webError);
 };
 
 // =========================
@@ -277,137 +446,8 @@ export const verifyAndroidSession = async (req, res) => {
   }
 };
 
-// ANDROID LOGIN PAGE (REDIRECT)
 // =========================
-export const androidLoginPage = async (req, res) => {
-  try {
-    console.log("📱 Android login page accessed");
-    
-    // Redirect to existing Twitter auth with platform=android
-    const userId = req.query.userId || "android_user_temp";
-    const authUrl = `/auth/twitter?userId=${userId}&platform=android`;
-    
-    console.log(`🔗 Redirecting Android to: ${authUrl}`);
-    res.redirect(authUrl);
-    
-  } catch (err) {
-    console.error("❌ Android login redirect error:", err);
-    res.status(500).send("Login failed");
-  }
-};
-
-// =========================
-// 6️⃣ CHECK CONNECTION
-// =========================
-export const checkTwitterConnection = async (req, res) => {
-  try {
-    const { userId } = req.query;
-    if (!userId) return res.status(400).json({ 
-      success: false, 
-      error: "userId required" 
-    });
-
-    const account = await TwitterAccount.findOne({
-      user: userId,
-      platform: "twitter",
-    });
-    
-    if (!account) {
-      return res.json({ 
-        success: true, 
-        connected: false 
-      });
-    }
-
-    res.json({
-      success: true,
-      connected: true,
-      account: {
-        username: account.meta?.username,
-        name: account.meta?.name,
-        connectedAt: account.createdAt,
-      }
-    });
-
-  } catch (err) {
-    console.error("Check Error:", err);
-    res.status(500).json({ 
-      success: false, 
-      error: err.message 
-    });
-  }
-};
-
-// =========================
-// 7️⃣ POST TWEET
-// =========================
-export const postToTwitter = async (req, res) => {
-  try {
-    const { userId, content } = req.body;
-    if (!userId || !content) {
-      return res.status(400).json({ 
-        success: false, 
-        error: "userId and content required" 
-      });
-    }
-
-    const account = await TwitterAccount.findOne({
-      user: userId,
-      platform: "twitter"
-    });
-
-    if (!account) {
-      return res.status(401).json({ 
-        success: false, 
-        error: "Twitter not connected" 
-      });
-    }
-
-    const client = new TwitterApi(account.accessToken);
-    const tweet = await client.v2.tweet(content);
-    const tweetId = tweet.data.id;
-    const tweetUrl = `https://twitter.com/${account.meta?.username}/status/${tweetId}`;
-    
-    // Save to posts database
-    try {
-      const newPost = new Post({
-        user: account.user,
-        platform: "twitter",
-        providerId: tweetId,
-        content: content,
-        postUrl: tweetUrl,
-        postedAt: new Date(),
-        status: "posted",
-        accountInfo: {
-          username: account.meta?.username,
-          name: account.meta?.name,
-          platformId: account.providerId
-        }
-      });
-      await newPost.save();
-      console.log("✅ Tweet saved to DB");
-    } catch (dbError) {
-      console.error("DB Save Error:", dbError.message);
-    }
-
-    res.json({
-      success: true,
-      tweetId: tweetId,
-      tweetUrl: tweetUrl,
-      message: "Tweet posted!"
-    });
-
-  } catch (err) {
-    console.error("Post Error:", err);
-    res.status(500).json({
-      success: false,
-      error: err.message || "Failed to post"
-    });
-  }
-};
-
-// =========================
-// 8️⃣ DISCONNECT
+// 6️⃣ DISCONNECT
 // =========================
 export const disconnectTwitter = async (req, res) => {
   try {
@@ -437,7 +477,7 @@ export const disconnectTwitter = async (req, res) => {
 };
 
 // =========================
-// 9️⃣ GET POSTS
+// 7️⃣ GET POSTS
 // =========================
 export const getTwitterPosts = async (req, res) => {
   try {
@@ -470,4 +510,82 @@ export const getTwitterPosts = async (req, res) => {
       error: err.message 
     });
   }
+};
+
+// =========================
+// HELPER FUNCTIONS (keep from original)
+// =========================
+const handleRedirect = (res, platform, userData, userId, sessionId, accessToken) => {
+  console.log(`🔄 Redirecting: ${platform.toUpperCase()} flow`);
+  
+  // 🎯 ANDROID: Send Deep Link
+  if (platform === "android" && sessionId) {
+    const deepLink = 
+      `aimediahub://twitter-callback` +
+      `?session_id=${sessionId}` +
+      `&status=success` +
+      `&username=${encodeURIComponent(userData.username)}` +
+      `&twitter_id=${userData.id}` +
+      `&user_id=${userId}` +
+      `&access_token=${encodeURIComponent(accessToken)}`;
+    
+    console.log(`🔗 Android Deep Link Created`);
+    
+    // HTML page with auto-redirect
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Twitter Connected</title>
+        <script>
+          setTimeout(function() {
+            window.location.href = "${deepLink}";
+          }, 100);
+          
+          setTimeout(function() {
+            window.location.href = "https://aumation-postings-frontend-1.onrender.com/twitter-manager?twitter=connected&username=${encodeURIComponent(userData.username)}";
+          }, 3000);
+        </script>
+      </head>
+      <body style="padding: 20px; font-family: Arial;">
+        <h2>✅ Twitter Connected Successfully!</h2>
+        <p>Connected to: @${userData.username}</p>
+        <p>Redirecting to Android app...</p>
+        <p><small>If not redirected, <a href="${deepLink}">click here</a></small></p>
+      </body>
+      </html>
+    `);
+  }
+  
+  // 🎯 WEB: Normal Redirect
+  const webRedirect = 
+    `https://aumation-postings-frontend-1.onrender.com/twitter-manager` +
+    `?twitter=connected` +
+    `&username=${encodeURIComponent(userData.username)}` +
+    `&user_id=${userId}`;
+  
+  console.log(`🌐 Web Redirect: ${webRedirect}`);
+  return res.redirect(webRedirect);
+};
+
+const sendErrorResponse = (res, error, platform) => {
+  console.log(`❌ ${platform.toUpperCase()} Error: ${error}`);
+  
+  if (platform === "android") {
+    const errorLink = `aimediahub://twitter-callback?status=error&error=${encodeURIComponent(error)}`;
+    return res.send(`
+      <!DOCTYPE html>
+      <html>
+      <body>
+        <script>
+          window.location.href = "${errorLink}";
+        </script>
+      </body>
+      </html>
+    `);
+  }
+  
+  // Web error
+  const webError = `https://aumation-postings-frontend-1.onrender.com/twitter-connect?error=${encodeURIComponent(error)}`;
+  return res.redirect(webError);
 };
